@@ -2,23 +2,36 @@ package org.example.message;
 
 import org.json.JSONObject;
 
-public class JsonMessage extends Message{
-    private JSONObject content;
-    public JsonMessage(JSONObject content) {
+public abstract class JsonMessage extends Message{
+    protected JSONObject body;
+    public JsonMessage(JSONObject body) {
         super(System.currentTimeMillis());
-        this.content = content;
+        this.body = body;
     }
-    public JsonMessage(long timeStamp, JSONObject content)  {
+    public JsonMessage(long timeStamp, JSONObject body)  {
         super(timeStamp);
-        this.content = content;
+        this.body = body;
     }
 
-    public JSONObject getContent() {
-        return content;
+    public JSONObject getHeader() {
+        JSONObject header = new JSONObject();
+        header.put("timeStamp", timeStamp);
+        return header;
+    }
+
+    public JSONObject getBody() {
+        return body;
+    }
+
+    public JSONObject toJSON() {
+        JSONObject message = new JSONObject();
+        message.put("header", getHeader());
+        message.put("body", getBody());
+        return message;
     }
 
     @Override
     public String toString() {
-        return content.toString();
+        return toJSON().toString();
     }
 }
