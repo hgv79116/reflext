@@ -3,19 +3,22 @@ package org.example.message;
 import org.json.JSONObject;
 
 public abstract class JsonMessage extends Message{
+    protected JSONObject header;
     protected JSONObject body;
-    public JsonMessage(JSONObject body) {
-        super(System.currentTimeMillis());
-        this.body = body;
-    }
     public JsonMessage(long timeStamp, JSONObject body)  {
         super(timeStamp);
+        this.header = new JSONObject();
+        this.header.put("timeStamp", timeStamp);
         this.body = body;
     }
 
+    public JsonMessage(JSONObject message) {
+        this.header = message.getJSONObject("header");
+        this.body = message.getJSONObject("body");
+        assert (header != null && body != null);
+    }
+
     public JSONObject getHeader() {
-        JSONObject header = new JSONObject();
-        header.put("timeStamp", timeStamp);
         return header;
     }
 
@@ -25,8 +28,8 @@ public abstract class JsonMessage extends Message{
 
     public JSONObject toJSON() {
         JSONObject message = new JSONObject();
-        message.put("header", getHeader());
-        message.put("body", getBody());
+        message.put("header", header);
+        message.put("body", body);
         return message;
     }
 
