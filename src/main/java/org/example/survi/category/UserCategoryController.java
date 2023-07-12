@@ -1,31 +1,23 @@
 package org.example.survi.category;
 
-import org.example.message.JsonMessage;
 import org.example.survi.GameStateBase;
 import org.example.survi.IndexedComponent;
 import org.example.survi.score_controller.ScoreController;
 import org.json.JSONObject;
 
-public class Category extends GameStateBase implements IndexedComponent {
-    final int id;
-    final int code;
+public class UserCategoryController extends GameStateBase implements IndexedComponent {
+    final int category;
     ScoreController scoreController;
 
-    public Category(int id,
-                    int code,
+    public UserCategoryController(int category,
                     ScoreController scoreController) {
-        this.id = id;
-        this.code = code;
-        this.scoreController = scoreController;
-    }
-
-    public void setScoreController(ScoreController scoreController) {
+        this.category = category;
         this.scoreController = scoreController;
     }
 
     @Override
     public int getId() {
-        return id;
+        return category;
     }
 
     @Override
@@ -41,11 +33,6 @@ public class Category extends GameStateBase implements IndexedComponent {
     }
 
     @Override
-    public void update(JsonMessage jsonMessage) {
-
-    }
-
-    @Override
     public void update(long newTimeStamp) {
         super.update(newTimeStamp);
         scoreController.update(newTimeStamp);
@@ -54,9 +41,13 @@ public class Category extends GameStateBase implements IndexedComponent {
     @Override
     public JSONObject getLastState() {
         JSONObject JSONContent = new JSONObject();
-        JSONContent.put("id", id);
-        JSONContent.put("code", code);
+        JSONContent.put("id", category);
         JSONContent.put("score", scoreController.getLastState());
         return JSONContent;
+    }
+
+    public double getScore(long timeStamp) {
+        update(timeStamp);
+        return scoreController.getScore(timeStamp);
     }
 }

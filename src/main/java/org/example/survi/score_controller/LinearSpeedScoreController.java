@@ -1,6 +1,7 @@
 package org.example.survi.score_controller;
 
 import org.example.message.JsonMessage;
+import org.example.message.client_message.ClientMessage;
 import org.json.JSONObject;
 
 public class LinearSpeedScoreController extends ScoreController {
@@ -52,7 +53,9 @@ public class LinearSpeedScoreController extends ScoreController {
         }
     }
 
-    public double getScore() {
+    public double getScore(long timeStamp) {
+        assert (timeStamp >= lastTimeStamp);
+        update(timeStamp);
         return score;
     }
 
@@ -63,10 +66,5 @@ public class LinearSpeedScoreController extends ScoreController {
         JSONContent.put("maxScore", maxScore);
         JSONContent.put("score", score);
         return JSONContent;
-    }
-
-    @Override
-    public void update(JsonMessage jsonMessage) {
-
     }
 }

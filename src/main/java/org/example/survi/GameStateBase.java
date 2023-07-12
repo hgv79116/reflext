@@ -1,6 +1,7 @@
 package org.example.survi;
 
 import org.example.message.JsonMessage;
+import org.example.message.client_message.ClientMessage;
 import org.json.JSONObject;
 
 public abstract class GameStateBase implements TimedComponent {
@@ -28,7 +29,9 @@ public abstract class GameStateBase implements TimedComponent {
         return getLastState();
     }
 
-    public abstract void update(JsonMessage jsonMessage);
+    public void update(ClientMessage clientMessage) {
+        update(clientMessage.getTimeStamp());
+    }
 
     public boolean hasStarted() {
         return startTime != -1;

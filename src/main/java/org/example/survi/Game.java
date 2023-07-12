@@ -4,88 +4,104 @@ package org.example.survi;
 // in the components.
 //
 
-import org.example.message.JsonMessage;
-import org.example.survi.category.Category;
-import org.example.survi.category.CategoryFactory;
+import org.example.message.client_message.ClientMessage;
 import org.example.survi.circle.Circle;
-import org.example.survi.circle.CircleFactory;
+import org.example.survi.circle.CircleController;
+import org.example.survi.player.Player;
 import org.json.JSONObject;
 
 public class Game extends GameStateBase{
-    private final int numCategory;
-    private HashMapIndexedComponentStorage<Category> categories = new HashMapIndexedComponentStorage<Category>();
-    private HashMapIndexedComponentStorage<Circle> circles = new HashMapIndexedComponentStorage<>();
-    private final CategoryFactory categoryFactory = new CategoryFactory();
-    private final CircleFactory circleFactory;
-    private double circleSpawnRate = 1;
+    private final int NUM_CATEGORY = 10;
+    private final int MAX_NUM_PLAYER = 2;
+    private final long DURATION = 100000;
+    private int numPlayer = 0;
+    private final HashMapIndexedComponentStorage<Player> players = new HashMapIndexedComponentStorage<>();
+    private final CircleController circleController = new CircleController(NUM_CATEGORY);
+    private PlayerRemovedListener onPlayerRemoved;
 
-    public Game(int numCategory) {
-        this.numCategory = numCategory;
-        for(int i = 0; i < numCategory; i++) {
-            Category category = categoryFactory.getInstance();
-            categories.addInstance(category);
-        }
+    public Game(
+                PlayerRemovedListener onPlayerRemoved) {
+        this.onPlayerRemoved = onPlayerRemoved;
+    }
 
-        this.circleFactory = new CircleFactory(
-                2,
-                2,
-                -1,
-                -1,
-                1,
-                1,
-            new CategoryGenerator(categories));
+
+    @Override
+    public boolean hasEnded() {
+        return super.hasEnded();
     }
 
     @Override
     public void start() {
         super.start();
-        for(Category category: categories) {
-            category.start();
+        for(Player player: players) {
+            player.start();
         }
+        circleController.start();
     }
 
     @Override
     public void end() {
         super.end();
-        for(Category category: categories) {
-            category.end();
+        for(Player player: players) {
+            player.end();
         }
-        for(Circle circle: circles) {
-            circle.end();
-        }
+        circleController.end();
     }
 
     @Override
     public void update(long newTimeStamp) {
+        long maxTimeStamp = startTime + DURATION;
+        if(newTimeStamp > maxTimeStamp) {
+            newTimeStamp = maxTimeStamp;
+        }
+
         super.update(newTimeStamp);
-        for(Category category: categories) {
-            category.update(newTimeStamp);
+        for(Player player: players) {
+            player.update(newTimeStamp);
         }
-        for(Circle circle: circles) {
-            circle.update(newTimeStamp);
-        }
+        circleController.update(newTimeStamp);
     }
 
     @Override
-    public void update(JsonMessage jsonMessage) {
+    public void update(ClientMessage clientMessage) {
+        super.update(clientMessage);
 
+        assert (clientMessage.getHeader().getString("clientMessageCategory") == "GAME_ACTION");
+        assert (clientMessage.getBody().getString("action") == "HIT");
+        int circleId = clientMessage.getBody().getInt("circleId");
+        int playerId = clientMessage.getBody().getInt("playerId");
+        Circle circle = circleController.getCircleById(circleId);
+        Player player = players.getInstanceById(playerId);
+        player.hit(clientMessage.getTimeStamp(), circle.getCategory());
+        circle.hit(clientMessage.getTimeStamp());
     }
 
     @Override
     public JSONObject getLastState() {
-        JSONObject JSONCategories = new JSONObject();
-        JSONObject JSONCircles = new JSONObject();
+        JSONObject JSONPlayers = new JSONObject();
+        for(Player player: players) {
+            JSONPlayers.put(String.valueOf(player.getId()), player.getLastState());
+        }
+
         JSONObject JSONContent = new JSONObject();
-
-        for(Category category: categories) {
-            JSONCategories.put(String.valueOf(category.getId()), category.getLastState());
-        }
-        for(Circle circle: circles) {
-            JSONCircles.put(String.valueOf(circle.getId()), circle.getLastState());
-        }
-
-        JSONContent.put("categories", JSONCategories);
-        JSONContent.put("circles", JSONCircles);
+        JSONContent.put("players", JSONPlayers);
+        JSONContent.put("circles", circleController.getLastState());
         return JSONContent;
+    }
+
+    private void removePlayer(int playerId) {
+        players.removeInstanceById(playerId);
+        onPlayerRemoved.onPlayerRemoved(playerId);
+    }
+
+    public boolean canAddNewPlayer() {
+        return players.getNumInstances() < MAX_NUM_PLAYER;
+    }
+
+    public int addPlayer() {
+        assert(startTime != -1);
+        Player player = new Player(players.getNumInstances(), NUM_CATEGORY);
+        players.addInstance(player);
+        return player.getId();
     }
 }

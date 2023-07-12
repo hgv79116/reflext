@@ -52,6 +52,11 @@ public class HashMapIndexedComponentStorage<T extends IndexedComponent>
         return components.values().iterator();
     }
 
+    @Override
+    public int getNumInstances() {
+        return components.size();
+    }
+
 }
 
 //

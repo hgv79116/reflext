@@ -1,4 +1,4 @@
-package org.example.survi.players;
+package org.example.survi.player;
 
 public class HealthOutOfBoundException extends Exception{
     public HealthOutOfBoundException(String errorMessage) {

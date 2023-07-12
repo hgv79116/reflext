@@ -10,4 +10,6 @@ public interface IndexedComponentStorage<T extends IndexedComponent>  {
     T removeInstanceById(int id) throws NoSuchElementException;
     boolean hasInstanceWithId(int id);
     Collection<T> getAllInstances();
+
+    int getNumInstances();
 }
