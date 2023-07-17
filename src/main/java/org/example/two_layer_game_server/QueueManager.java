@@ -3,36 +3,48 @@ package org.example.two_layer_game_server;
 import org.example.socket_wrapper.SocketWrapper;
 
 import javax.management.openmbean.KeyAlreadyExistsException;
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.*;
 
-public class QueueManager {
+public class QueueManager implements Closeable {
     private Queue<SocketWrapper> queueSocketWrappers = new LinkedList<>();
     private HashSet<SocketWrapper> queueSocketWrappersSet = new HashSet<>();
     private HashSet<SocketWrapper>  gameSocketWrappers = new HashSet<>();
 
-    private SocketEventListener onPromoted = null;
-    private SocketEventListener onDemoted = null;
-    private SocketEventListener onAdded = null;
-    private SocketEventListener onRemoved = null;
+//    private SocketEventListener onPromoted = null;
+//    private SocketEventListener onDemoted = null;
+//    private SocketEventListener onAdded = null;
+//    private SocketEventListener onRemoved = null;
 
     public QueueManager() {
     }
 
-    public void setOnAdded(SocketEventListener onAdded) {
-        this.onAdded = onAdded;
+    @Override
+    public void close() throws IOException {
+        for(SocketWrapper socketWrapper: queueSocketWrappers) {
+            socketWrapper.close();
+        }
+        for(SocketWrapper socketWrapper: gameSocketWrappers) {
+            socketWrapper.close();
+        }
     }
 
-    public void setOnRemoved(SocketEventListener onRemoved) {
-        this.onRemoved = onRemoved;
-    }
-
-    public void setOnDemoted(SocketEventListener onDemoted) {
-        this.onDemoted = onDemoted;
-    }
-
-    public void setOnPromoted(SocketEventListener onPromoted) {
-        this.onPromoted = onPromoted;
-    }
+    //    public void setOnAdded(SocketEventListener onAdded) {
+//        this.onAdded = onAdded;
+//    }
+//
+//    public void setOnRemoved(SocketEventListener onRemoved) {
+//        this.onRemoved = onRemoved;
+//    }
+//
+//    public void setOnDemoted(SocketEventListener onDemoted) {
+//        this.onDemoted = onDemoted;
+//    }
+//
+//    public void setOnPromoted(SocketEventListener onPromoted) {
+//        this.onPromoted = onPromoted;
+//    }
 
 
     public boolean isInQueue(SocketWrapper socketWrapper) {
@@ -96,13 +108,15 @@ public class QueueManager {
     public synchronized void add(SocketWrapper socketWrapper) {
         addToQueue(socketWrapper);
     }
-    public synchronized void remove(SocketWrapper socketWrapper) {
+    public synchronized void remove(SocketWrapper socketWrapper) throws IOException {
         if(isInGame(socketWrapper)) {
             demote(socketWrapper);
         }
         if(isInQueue(socketWrapper)) {
             removeFromQueue(socketWrapper);
         }
+
+        socketWrapper.close();
     }
 
     public synchronized SocketWrapper promoteOne() throws EmptyStackException {

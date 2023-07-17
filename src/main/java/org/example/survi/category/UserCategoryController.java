@@ -21,20 +21,21 @@ public class UserCategoryController extends GameStateBase implements IndexedComp
     }
 
     @Override
-    public void start() {
-        super.start();
-        scoreController.start();
+    public void start(long timeStamp) {
+        super.start(timeStamp);
+        scoreController.start(timeStamp);
     }
 
     @Override
-    public void end() {
-        super.end();
-        scoreController.end();
+    public void end(long timeStamp) {
+        super.end(timeStamp);
+        scoreController.end(timeStamp);
     }
 
     @Override
     public void update(long newTimeStamp) {
         super.update(newTimeStamp);
+
         scoreController.update(newTimeStamp);
     }
 
@@ -46,8 +47,8 @@ public class UserCategoryController extends GameStateBase implements IndexedComp
         return JSONContent;
     }
 
-    public double getScore(long timeStamp) {
+    public double updateAndGetScore(long timeStamp) {
         update(timeStamp);
-        return scoreController.getScore(timeStamp);
+        return scoreController.updateAndGetScore(timeStamp);
     }
 }

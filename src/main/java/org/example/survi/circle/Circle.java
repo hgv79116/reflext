@@ -27,7 +27,7 @@ public class Circle extends GameStateBase implements IndexedComponent {
 
     public static Circle randomInstance(int id, int numCategory) {
         double _radius = RANDOM.nextDouble();
-        ContinuousCoordinate _coordinate= ContinuousCoordinate.randomInstance(-1 + _radius, -1 + _radius, 1 - _radius, 1 - _radius);
+        ContinuousCoordinate _coordinate= ContinuousCoordinate.randomInstance(MIN_SPAWN_X + _radius, MAX_SPAWN_X - _radius, MIN_SPAWN_Y + _radius, MAX_SPAWN_Y - _radius);
         return new Circle(
                 id,
                 _radius,
@@ -51,58 +51,34 @@ public class Circle extends GameStateBase implements IndexedComponent {
         return id;
     }
 
-    public void setAlive(boolean alive) {
-        this.alive = alive;
-    }
-
-    public double getLifetime() {
-        return LIFE_TIME;
-    }
-
-    public boolean isAlive() {
-        return alive;
-    }
-
-    public double getRadius() {
-        return radius;
-    }
-
-    public ContinuousCoordinate getCoordinate() {
-        return coordinate;
-    }
-
     public int getCategory() {
         return category;
     }
 
     @Override
     public void update(long newTimeStamp) {
-        if(newTimeStamp > startTime + LIFE_TIME) {
-            alive = false;
+        System.out.println("updateeee: " + newTimeStamp);
+        long maxTimeStamp = getStartTime() + LIFE_TIME;
+        if(newTimeStamp > maxTimeStamp) {
+            newTimeStamp = maxTimeStamp;
         }
         super.update(newTimeStamp);
+
+        if(newTimeStamp >= maxTimeStamp) {
+            end(newTimeStamp);
+        }
     }
 
-    @Override
-    public void update(ClientMessage clientMessage) {
-        super.update(clientMessage);
+    public void hit(long timeStamp) {
+        update(timeStamp);
+        end(timeStamp);
     }
 
     @Override
     public JSONObject getLastState() {
         JSONObject JSONContent = new JSONObject();
-        JSONContent.put("alive", alive);
         JSONContent.put("lifetime", LIFE_TIME);
-        JSONContent.put("timeLeft", alive? lastTimeStamp - startTime: 0);
+        JSONContent.put("timePassed", (lastTimeStamp - startTime));
         return JSONContent;
-    }
-
-    public long getExpectedEndTime() {
-        return startTime + LIFE_TIME;
-    }
-
-    public void hit(long timeStamp) {
-        update(timeStamp);
-        end();
     }
 }

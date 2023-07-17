@@ -16,12 +16,26 @@ public class CircleController extends GameStateBase {
     private int circleCounter = 0;
     private final HashMapIndexedComponentStorage<Circle> circles = new HashMapIndexedComponentStorage<>();
 
-    public CircleController(int numCategory, ) {
+    public CircleController(int numCategory) {
         this.NUM_CATEGORY = numCategory;
     }
 
-    private void spawnNewCircle() {
-        circles.addInstance(Circle.randomInstance(circleCounter++, NUM_CATEGORY));
+    @Override
+    public void end(long timeStamp) {
+        super.end(timeStamp);
+
+        for(Circle circle: circles) {
+            circle.end(timeStamp);
+        }
+    }
+
+
+
+    private void spawnNewCircle(long newTimeStamp) {
+
+        Circle newCircle = Circle.randomInstance(circleCounter++, NUM_CATEGORY);
+        circles.addInstance(newCircle);
+        newCircle.start(newTimeStamp);
     }
 
     @Override
@@ -29,7 +43,7 @@ public class CircleController extends GameStateBase {
         super.update(newTimeStamp);
 
         if(lastSpawnTime == -1 || lastSpawnTime + CIRCLE_SPAWN_COOLDOWN <= newTimeStamp) {
-            spawnNewCircle();
+            spawnNewCircle(newTimeStamp);
         }
 
         for(Circle circle: circles) {
@@ -44,7 +58,7 @@ public class CircleController extends GameStateBase {
     public JSONObject getLastState() {
         JSONObject ret = new JSONObject();
         for(Circle circle: circles) {
-            ret.put(String.valueOf(circle.getId()), circles);
+            ret.put(String.valueOf(circle.getId()), circle.getLastState());
         }
         return ret;
     }

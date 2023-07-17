@@ -1,29 +1,20 @@
 package org.example.survi.score_controller;
 
 public class LinearSpeedScoreControllerFactory implements ScoreControllerFactory {
-    private final double defaultScore;
-    private final double defaultSpeed;
-    private final double minScore;
-    private final double maxScore;
-    private final int initial_direction;
+    private final double DEFAULT_SCORE = 0;
+    private final double DEFAULT_SPEED = 0.001;
+    private final double MIN_SCORE = -1;
+    private final double MAX_SCORE = 1;
+    private final int INITIAL_DIRECTION = 1;
     private double score;
     private double speed;
     private int direction;
     private long lastTimeStamp;
 
-    public LinearSpeedScoreControllerFactory(double defaultScore,
-                                             double defaultSpeed,
-                                             double minScore,
-                                             double maxScore,
-                                             int initial_direction) {
-        this.defaultScore = defaultScore;
-        this.minScore = minScore;
-        this.defaultSpeed = defaultSpeed;
-        this.maxScore = maxScore;
-        this.initial_direction = initial_direction;
+    public LinearSpeedScoreControllerFactory() {
     }
 
     public LinearSpeedScoreController newInstance() {
-        return new LinearSpeedScoreController(minScore, maxScore, defaultScore, defaultSpeed, initial_direction);
+        return new LinearSpeedScoreController(MIN_SCORE, MAX_SCORE, DEFAULT_SCORE, DEFAULT_SPEED, INITIAL_DIRECTION);
     }
 }

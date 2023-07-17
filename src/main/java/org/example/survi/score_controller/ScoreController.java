@@ -11,5 +11,5 @@ public abstract class ScoreController extends GameStateBase{
         this.maxScore = maxScore;
     }
 
-    public abstract double getScore(long timeStamp);
+    public abstract double updateAndGetScore(long timeStamp);
 }

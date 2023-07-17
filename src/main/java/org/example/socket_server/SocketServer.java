@@ -11,11 +11,11 @@ import java.net.Socket;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 
-public class SocketServer{
+public class SocketServer implements AutoCloseable {
     class IncomingConnectionsListener implements Runnable {
         @Override
         public void run() {
-            while(true) {
+            while(!Thread.interrupted()) {
                 try {
                     Socket socket = serverSocket.accept();
                     SocketWrapper socketWrapper = socketWrapperFactory.getSocketWrapper(socket);
@@ -47,6 +47,15 @@ public class SocketServer{
         this.onAcceptConnection = onAcceptConnection;
     }
 
+    @Override
+    public void close() throws IOException {
+        incomingConnectionsListenerThread.interrupt();
+        serverSocket.close();
+        try {
+            incomingConnectionsListenerThread.join();
+        } catch (Exception e) {
+        }
+    }
 
     public void startAcceptingConnections() {
         this.incomingConnectionsListenerThread = new Thread(new IncomingConnectionsListener());

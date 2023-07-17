@@ -13,53 +13,67 @@ import org.json.JSONObject;
 public class Game extends GameStateBase{
     private final int NUM_CATEGORY = 10;
     private final int MAX_NUM_PLAYER = 2;
-    private final long DURATION = 100000;
-    private int numPlayer = 0;
+    private final int MIN_NUM_PLAYER = 1;
+    private final long DURATION = 5000;
     private final HashMapIndexedComponentStorage<Player> players = new HashMapIndexedComponentStorage<>();
     private final CircleController circleController = new CircleController(NUM_CATEGORY);
-    private PlayerRemovedListener onPlayerRemoved;
 
-    public Game(
-                PlayerRemovedListener onPlayerRemoved) {
-        this.onPlayerRemoved = onPlayerRemoved;
+    public Game() {
     }
 
-
-    @Override
-    public boolean hasEnded() {
-        return super.hasEnded();
+    public boolean canStart() {
+        return players.getNumInstances() >= MIN_NUM_PLAYER && players.getNumInstances() <= MAX_NUM_PLAYER;
     }
 
     @Override
-    public void start() {
-        super.start();
+    public void start(long timeStamp) {
+        super.start(timeStamp);
         for(Player player: players) {
-            player.start();
+            player.start(timeStamp);
         }
-        circleController.start();
+        circleController.start(timeStamp);
     }
 
     @Override
-    public void end() {
-        super.end();
+    public void end(long timeStamp) {
+        super.end(timeStamp);
         for(Player player: players) {
-            player.end();
+            player.end(timeStamp);
         }
-        circleController.end();
+        circleController.end(timeStamp);
     }
 
     @Override
     public void update(long newTimeStamp) {
-        long maxTimeStamp = startTime + DURATION;
+        System.out.println("jflsdjljflsjflk");
+        long maxTimeStamp = getStartTime() + DURATION;
         if(newTimeStamp > maxTimeStamp) {
             newTimeStamp = maxTimeStamp;
         }
 
-        super.update(newTimeStamp);
         for(Player player: players) {
             player.update(newTimeStamp);
         }
         circleController.update(newTimeStamp);
+
+        super.update(newTimeStamp);
+
+        if(newTimeStamp >= maxTimeStamp) {
+            end(newTimeStamp);
+        }
+    }
+
+    @Override
+    public JSONObject getLastState() {
+        JSONObject JSONPlayers = new JSONObject();
+        for(Player player: players) {
+            JSONPlayers.put(String.valueOf(player.getId()), player.getLastState());
+        }
+
+        JSONObject JSONContent = new JSONObject();
+        JSONContent.put("players", JSONPlayers);
+        JSONContent.put("circles", circleController.getLastState());
+        return JSONContent;
     }
 
     @Override
@@ -76,31 +90,14 @@ public class Game extends GameStateBase{
         circle.hit(clientMessage.getTimeStamp());
     }
 
-    @Override
-    public JSONObject getLastState() {
-        JSONObject JSONPlayers = new JSONObject();
-        for(Player player: players) {
-            JSONPlayers.put(String.valueOf(player.getId()), player.getLastState());
-        }
 
-        JSONObject JSONContent = new JSONObject();
-        JSONContent.put("players", JSONPlayers);
-        JSONContent.put("circles", circleController.getLastState());
-        return JSONContent;
+    public boolean canAddPlayer() {
+        return !hasStarted() && players.getNumInstances() < MAX_NUM_PLAYER;
     }
 
-    private void removePlayer(int playerId) {
-        players.removeInstanceById(playerId);
-        onPlayerRemoved.onPlayerRemoved(playerId);
-    }
-
-    public boolean canAddNewPlayer() {
-        return players.getNumInstances() < MAX_NUM_PLAYER;
-    }
-
-    public int addPlayer() {
-        assert(startTime != -1);
-        Player player = new Player(players.getNumInstances(), NUM_CATEGORY);
+    public int addPlayer(JSONObject userInfo) {
+        assert(!hasStarted());
+        Player player = new Player(players.getNumInstances(), NUM_CATEGORY, userInfo);
         players.addInstance(player);
         return player.getId();
     }

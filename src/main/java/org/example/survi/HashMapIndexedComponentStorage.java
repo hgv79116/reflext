@@ -12,6 +12,9 @@ import java.util.*;
 public class HashMapIndexedComponentStorage<T extends IndexedComponent>
         implements IndexedComponentStorage<T>, Iterable<T> {
     HashMap<Integer, T> components;
+    public <T> HashMapIndexedComponentStorage() {
+        this.components = new HashMap<>();
+    }
 
     @Override
     public boolean hasInstanceWithId(int id) {

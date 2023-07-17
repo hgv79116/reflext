@@ -4,11 +4,11 @@ import org.example.message.JsonMessage;
 import org.example.message.client_message.ClientMessage;
 import org.json.JSONObject;
 
+import java.util.Random;
+
 public class LinearSpeedScoreController extends ScoreController {
-    private final double defaultScore;
-    private final double defaultSpeed;
     private double score;
-    private double speed;
+    private final double speed;
     private int direction;
     private long lastTimeStamp;
 
@@ -18,27 +18,16 @@ public class LinearSpeedScoreController extends ScoreController {
                                       double defaultSpeed,
                                       int initial_direction) {
         super(minScore, maxScore);
-        this.defaultScore = defaultScore;
-        this.defaultSpeed = defaultSpeed;
         this.score = defaultScore;
+        this.speed = new Random().nextDouble() * defaultSpeed;
         assert (initial_direction == -1 || initial_direction == 1);
         this.direction = initial_direction;
     }
 
-    public void setScore(double score) {
-        this.score = score;
-    }
-
-    public void setSpeed(double speed) {
-        this.speed = speed;
-    }
-
-    public void setDirection(int direction) {
-        this.direction = direction;
-    }
-
     @Override
     public void update(long newTimeStamp) {
+        super.update(newTimeStamp);
+
         long deltaTime = newTimeStamp - lastTimeStamp;
         lastTimeStamp = newTimeStamp;
 
@@ -49,12 +38,11 @@ public class LinearSpeedScoreController extends ScoreController {
         }
         if(score <= minScore) {
             score = minScore;
-            direction = -1;
+            direction = 1;
         }
     }
 
-    public double getScore(long timeStamp) {
-        assert (timeStamp >= lastTimeStamp);
+    public double updateAndGetScore(long timeStamp) {
         update(timeStamp);
         return score;
     }

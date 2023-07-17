@@ -24,7 +24,9 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-public class GameApplication {
+public class GameApplication implements AutoCloseable {
+    private final long GAME_COOLDOWN = (long)2e4;
+    private final long TIMESTEP = 50;
     private final SocketServer socketServer;
     private final QueueManager queueManager;
     private BlockingQueue<ClientMessage> inputMessageQueue = new LinkedBlockingQueue<>();
@@ -37,58 +39,98 @@ public class GameApplication {
 
     // game lifecycle variables.
     private volatile long lastGameEndTime = -1;
-    private volatile long currentGameStartTime = -1;
-    private final long gameCoolDown = (long)2e4; // 20 seconds
     private Game game;
-    private HashMap<SocketWrapper, Integer> playerIdHashMap = new HashMap<>();
-    private HashMap<Integer, SocketWrapper> socketWrapperHashMap = new HashMap<>();
+    private HashMap<SocketWrapper, Integer> playerIdHashMap = new HashMap<>(); // map from socket to the game's player id
+    private HashMap<Integer, SocketWrapper> socketWrapperHashMap = new HashMap<>(); // map from player's id to socket wrapper
 
     // internal game processing variable.s
-    private final long timeStep = 50;
-    private volatile long lastGameProcessingTime = -1;
-
-
-
+    private final HashMap<SocketWrapper, JSONObject> userInfo = new HashMap<>();
     // queue management
-    private final HashMap<SocketWrapper, MessageListener<ClientMessage>>
+    private final HashMap<SocketWrapper, MessageListener<ClientMessage>> // map from socket wrappers in the game to listener (client -> queue)
             gameSocketWrapperListenerHashMap = new HashMap<>();
-    private final HashMap<SocketWrapper, MessageListener<ClientMessage>>
+    private final HashMap<SocketWrapper, MessageListener<ClientMessage>> // map from socket wrappers in the queue to listener (client -> game)
             queueSocketWrapperListenerHashMap = new HashMap<>();
 
-    private final HashMap<SocketWrapper, MessageListener<ServerMessage>>
+    private final HashMap<SocketWrapper, MessageListener<ServerMessage>> // map from socket wrappers in the game to listeners (game -> client)
             gameGameListenerHashMap = new HashMap<>();
-    private final HashMap<SocketWrapper, MessageListener<ServerMessage>>
+    private final HashMap<SocketWrapper, MessageListener<ServerMessage>> // map from socket wrappers in the queue to listeners (game -> client)
             queueGameListenerHashMap = new HashMap<>();
 
+    // listen from game.
+    private final Ditributor ditributor = new Ditributor();
+
     abstract class BaseClientListener implements MessageListener<ClientMessage> {
-        boolean isConnectionAction(ClientMessage message) {
-            return message.getHeader().getString("clientMessageCategory") == "CONNECTION_ACTION";
+
+        protected SocketWrapper socketWrapper;
+
+        public BaseClientListener(SocketWrapper socketWrapper) {
+            this.socketWrapper = socketWrapper;
+            socketWrapper.addListener(this);
+            System.out.println("Testing");
         }
 
-        void onConnectionAction(ClientMessage message) {
+        boolean isConnectionAction(ClientMessage message) {
+            return message.getHeader().getString("clientMessageCategory").equals("CONNECTION_ACTION");
+        }
 
+        void remove() {
+            socketWrapper.removeListener(this);
+            socketWrapper = null;
+        }
+
+        @Override
+        public void onMessage(ClientMessage message) throws ImplementationFailsException {
+            System.out.println("Received message from client: " + message);
+            if(isConnectionAction(message)) {
+                System.out.println("connection action");
+                String connectionAction = message.getHeader().getString("connectionAction");
+                if(connectionAction.equals("DISCONNECT")) {
+                    System.out.println("filtered as disconnect action");
+                    try {
+                        GameApplication.this.remove(socketWrapper);
+                    } catch (IOException e) {
+                        throw new ImplementationFailsException(e.getMessage(), e.getCause());
+                    }
+                }
+                else if(connectionAction.equals("CONNECT")) {
+                    System.out.println("Reply: " + (new ConnectedMessage(System.currentTimeMillis(), "Connected")));
+                    JSONObject userInfo = message.getBody().getJSONObject("userInfo");
+                    GameApplication.this.userInfo.put(socketWrapper, userInfo);
+                    socketWrapper.sendMessage(new ConnectedMessage(System.currentTimeMillis(), "Connected"));
+                }
+                else {
+                    assert (false);
+                }
+            }
+            System.out.flush();
         }
     }
 
     class QueueClientListener extends BaseClientListener {
+
+        public QueueClientListener(SocketWrapper socketWrapper) {
+            super(socketWrapper);
+        }
         @Override
         public void onMessage(ClientMessage message) throws ImplementationFailsException {
-            if(isConnectionAction(message)) {
-               onConnectionAction(message);
-            }
-            else {
-                System.out.println("Message Ignored");
-            }
+            super.onMessage(message);
+
+            System.out.println("Message Ignored");
         }
     }
 
+
     class GameClientListener extends BaseClientListener {
+        public GameClientListener(SocketWrapper socketWrapper) {
+            super(socketWrapper);
+        }
         @Override
         public void onMessage(ClientMessage message) throws ImplementationFailsException {
-            if(isConnectionAction(message)) {
-                onConnectionAction(message);
-            }
-            else {
+            super.onMessage(message);
+            System.out.flush();;
+            System.out.println("game listener called");
+            System.out.flush();
+            if(!isConnectionAction(message)) {
                 try {
                     inputMessageQueue.put(message);
                 } catch (Exception e) {
@@ -102,6 +144,11 @@ public class GameApplication {
         protected SocketWrapper socketWrapper;
         public GameListener(SocketWrapper socketWrapper) {
             this.socketWrapper = socketWrapper;
+            ditributor.addListener(this);
+        }
+        void remove() {
+            socketWrapper = null;
+            ditributor.removeListener(this);
         }
     }
 
@@ -127,88 +174,93 @@ public class GameApplication {
         }
     }
 
-    private void addToQueue(SocketWrapper socketWrapper) throws KeyAlreadyExistsException {
-        queueSocketWrapperListenerHashMap.put(socketWrapper, new QueueClientListener());
-        queueGameListenerHashMap.put(socketWrapper, new QueueGameListener(socketWrapper));
-    }
+    class Ditributor {
+        private volatile boolean stopped = false;
+        private HashSet<MessageListener<ServerMessage>> listeners = new HashSet<>();
+        private Thread listeningThread;
+        public Ditributor() {
+        }
 
-    private void addToGame(SocketWrapper socketWrapper) throws KeyAlreadyExistsException {
-        gameSocketWrapperListenerHashMap.put(socketWrapper, new GameClientListener());
-        gameGameListenerHashMap.put(socketWrapper, new GameGameListener(socketWrapper));
-    }
+        public void start()  {
+            stopped = false;
 
-    private void removeFromGame(SocketWrapper socketWrapper) throws NoSuchElementException {
-        gameSocketWrapperListenerHashMap.remove(socketWrapper);
-        gameGameListenerHashMap.remove(socketWrapper);
-    }
+            listeningThread = new Thread(() -> {
+                while(!Thread.interrupted() && !stopped) {
+                    if(!outputMessageQueue.isEmpty()) {
+                        ServerMessage message = outputMessageQueue.poll();
+                        for (MessageListener listener : listeners) {
+                            try {
+                                listener.onMessage(message);
+                            } catch (Exception e) {
+                                System.out.println(e);
+                            }
+                        }
+                    }
+                }
+            });
 
-    private void removeFromQueue(SocketWrapper socketWrapper) throws NoSuchElementException {
-        queueSocketWrapperListenerHashMap.remove(socketWrapper);
-        queueGameListenerHashMap.remove(socketWrapper);
+            listeningThread.start();
+        }
+
+        public void stop() {
+            stopped = true;
+            listeningThread.interrupt();
+        }
+
+        public void addListener(MessageListener<ServerMessage> listener) {
+            listeners.add(listener);
+        }
+
+        public void removeListener(MessageListener<ServerMessage> listener) {
+            listeners.remove(listener);
+        }
     }
 
     public GameApplication() throws IOException {
         this.queueManager = new QueueManager();
-        queueManager.setOnAdded(new SocketEventListener() {
-            @Override
-            public void run(SocketWrapper socket) {
-                socket.sendMessage(new InQueueMessage(System.currentTimeMillis(), "You have been added to queue"));
-                addToQueue(socket);
-            }
-        });
-
-        queueManager.setOnPromoted(new SocketEventListener() {
-            @Override
-            public void run(SocketWrapper socket) {
-                socket.sendMessage(new InGameMessage(System.currentTimeMillis(), "You have been moved to game"));
-                removeFromQueue(socket);
-                addToGame(socket);
-            }
-        });
-
-        queueManager.setOnDemoted(new SocketEventListener() {
-            @Override
-            public void run(SocketWrapper socket) {
-                socket.sendMessage(new InQueueMessage(System.currentTimeMillis(), "You have been moved back to queue"));
-                removeFromGame(socket);
-                addToQueue(socket);
-            }
-        });
-
-        queueManager.setOnRemoved(new SocketEventListener() {
-            @Override
-            public void run(SocketWrapper socket) {
-                socket.sendMessage(new DisconnectedMessage(System.currentTimeMillis(), "You have been disconnected"));
-                if(queueManager.isInGame(socket)) {
-                    removeFromGame(socket);
-                }
-                removeFromQueue(socket);
-            }
-        });
 
         this.socketServer = new SocketServer(8080,
                 new SocketServerListener() {
                     @Override
                     public void onAcceptConnection(SocketWrapper socketWrapper) {
-                        socketWrapper.sendMessage(new ConnectedMessage(System.currentTimeMillis(), "You have been connected"));
-                        queueManager.add(socketWrapper);
+                        try {
+                            socketWrapper.startListening();
+                            add(socketWrapper);
+                        } catch (Exception e) {
+                            System.out.println("Error listening");
+                            socketWrapper.sendMessage(new DisconnectedMessage(System.currentTimeMillis(),
+                                    "Server error(?): cannot listen from this socket"));
+                        }
                     }
                 });
     }
 
-    // application life cycle
-    public void start() throws InterruptedException {
-        socketServer.startAcceptingConnections(); // start the socket server
+    @Override
+    public void close() throws IOException {
+        queueManager.close();
 
+        socketServer.close();
+    }
+
+    // application life cycle
+    public void start() throws InterruptedException, IOException {
+        socketServer.startAcceptingConnections(); // start the socket server
         startSequentiallyProcessing(); // start infinite while loop to handle events
         applicationStartTime = System.currentTimeMillis();
     }
 
     public void end() {
-        socketServer.stopAcceptingConnections(); // stop the socket server
-
         applicationStopped = true; // stop the infinite while loop.
         applicationEndTime = System.currentTimeMillis();
+        socketServer.stopAcceptingConnections(); // stop the socket server
+    }
+
+    public long getApplicationStartTime() {
+        return applicationStartTime;
+    }
+
+    public long getApplicationEndTime() {
+        return applicationEndTime;
     }
 
     // essentially the infinite while loop
@@ -220,59 +272,101 @@ public class GameApplication {
     // pre game ended:  send message to listeners
     // end game
     // set game = null
-    private void startSequentiallyProcessing() throws InterruptedException {
+    private void startSequentiallyProcessing() throws InterruptedException, IOException {
+        long lastGameProcessingTime = System.currentTimeMillis();
+        long processingCount = 0;
         while(!applicationStopped) {
             long currentTime = System.currentTimeMillis();
-            if(game == null) {
-                if (lastGameEndTime == -1) {
-                    startNewGame(); // this consists of all the pre and post starting the game steps
+//            System.out.println("This step" + lastGameProcessingTime + " -> " + currentTime);
+            if(!gameInitialized()) {
+                initializeNewGame();
+            }
+            else if(!gameHasStarted()) {
+                if (canStartGame()) {
+                    startGame();
                 }
-                else if(currentTime >= lastGameEndTime + gameCoolDown) {
-                    startNewGame();
+            }
+            else if(gameHasEnded()) {
+                System.out.println("preparing to dispose game");
+                disposeGame();
+            }
+            else { // game has not ended & has started
+                if(currentTime >= lastGameProcessingTime + TIMESTEP) { // the game is still in process & a timestep has passed
+                    processGame(currentTime);
+                    lastGameProcessingTime = currentTime;
+                    // why put it here, but not in processGame()? because this function make use
+                    // of lastGameProcessingTime, so I thought all the related manipulations
+                    // should be put here.
+
+                    // mistake when debugging: assuming that I can read fast enough to detect anomalies in the output.
                 }
             }
-            else if(game.hasEnded()){
-                endCurrentGame();
-            }
-            else if(currentTime >= lastGameProcessingTime + timeStep){ // the game is still in process & a timestep has passed
-                processGame(currentTime);
-            }
+//            System.out.println("Next step");
         }
     }
 
-    // game lifecycle
-    private void startNewGame() {
-        long currentTime= System.currentTimeMillis();
-        currentGameStartTime = currentTime;
+    private boolean gameInitialized() {
+        return game != null;
+    }
 
-        Collection<SocketWrapper> inQueueSockets = queueManager.getAllQueueSockets();
+    private void initializeNewGame() {
+        game = new Game();
+    }
+
+    private boolean gameHasStarted() {
+        if(!gameInitialized()) {
+            return false;
+        }
+        if(!game.hasStarted()) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean canStartGame() {
+        Collection<SocketWrapper> inQueueSockets = queueManager.getAllQueueSockets().stream().toList();
         for(SocketWrapper socketWrapper: inQueueSockets){
-            if (!socketWrapper.checkDisconnected()) {
-                addToGame(socketWrapper);
+            if (userInfo.containsKey(socketWrapper) && !socketWrapper.checkDisconnected() && game.canAddPlayer()) {
+//                System.out.println("user info: " + userInfo.get(socketWrapper));
+                int playerId = game.addPlayer(userInfo.get(socketWrapper));
+                playerIdHashMap.put(socketWrapper, playerId);
+                socketWrapperHashMap.put(playerId, socketWrapper);
+
+                promoteToGame(socketWrapper);
             }
         }
 
-        game = new Game(new PlayerRemovedListener() {
-            @Override
-            public void onPlayerRemoved(int playerId) {
-                queueManager.remove(socketWrapperHashMap.get(playerId));
-            }
-        });
-        game.start();
+//        System.out.println("Game can start: " + ((lastGameEndTime == -1 || System.currentTimeMillis() - lastGameEndTime >= GAME_COOLDOWN) && game.canStart()));
+
+        return (lastGameEndTime == -1 || System.currentTimeMillis() - lastGameEndTime >= GAME_COOLDOWN) && game.canStart();
+    }
+
+    private synchronized void startGame() {
+        System.out.println("Started game");
+        long currentTime= System.currentTimeMillis();
+
+        game.start(currentTime);
 
         final GameStartedMessage gameStartMessage= new GameStartedMessage(currentTime, "Game has started");
-        Collection<SocketWrapper> inGameSockets = queueManager.getAllGameSockets();
 
-        for(SocketWrapper socketWrapper: inGameSockets) {
-            int playerId = game.addPlayer();
-            playerIdHashMap.put(socketWrapper, playerId);
-            socketWrapperHashMap.put(playerId, socketWrapper);
-            socketWrapper.sendMessage(new GameStartedMessage(currentTime, "Game has started"));
+        for(SocketWrapper socketWrapper: queueManager.getAllGameSockets().stream().toList()) {
+            socketWrapper.sendMessage(gameStartMessage);
         }
+        System.out.println("Game has started");
+
+        ditributor.start();
     }
 
-    private void endCurrentGame() {
+    private boolean gameHasEnded() {
+        assert(game != null);
+        return game.hasEnded();
+    }
+
+    private synchronized void disposeGame() throws IOException {
         long currentTime = System.currentTimeMillis();
+
+        ditributor.stop();
+
         final GameEndedMessage gameEndMessage = new GameEndedMessage(currentTime, "Game has ended");
 
         Collection<SocketWrapper> inGameSockets = queueManager.getAllGameSockets();
@@ -280,35 +374,103 @@ public class GameApplication {
             socketWrapper.sendMessage(gameEndMessage);
         }
 
-//        game.end();
         game = null;
+        lastGameEndTime = currentTime;
         playerIdHashMap.clear();
         socketWrapperHashMap.clear();
 
-        // remove disconnected users
+        inputMessageQueue.clear();
+        outputMessageQueue.clear();
+
         for(SocketWrapper socketWrapper: inGameSockets) {
             if(socketWrapper.checkDisconnected()) {
-                queueManager.remove(socketWrapper);
+                remove(socketWrapper);
             }
         }
-
-        lastGameEndTime = currentTime;
     }
 
+    // game lifecycle
+
     // a process cycle: take all messages, process, and then return the game state.
-
-
-    private void processGame(long processingStartTime) throws InterruptedException {
-        while(inputMessageQueue.size() > 0 && inputMessageQueue.peek().getTimeStamp() <= processingStartTime) {
+    private synchronized void processGame(long processingStartTime) throws InterruptedException {
+//        System.out.println("Processing game");
+        while(!inputMessageQueue.isEmpty() && inputMessageQueue.peek().getTimeStamp() <= processingStartTime) {
             ClientMessage inputMessage = inputMessageQueue.poll();
             game.update(inputMessage);
         }
 
-        JSONObject gameState = game.getLastState();
+        JSONObject gameState = game.updateAndGetState(processingStartTime);
+
         try {
+            System.out.println("Game state: " + gameState);
+//            System.out.println("outputted game state at " + processingStartTime);
             outputMessageQueue.put(new GameStateMessage(processingStartTime, gameState));
-        } catch (InterruptedException e) {
+//            System.out.println("Done processing game");
+        } catch (Exception e) {
+            System.out.println(e);
             throw e;
         }
+    }
+
+    public synchronized void add(SocketWrapper socketWrapper) {  // same level as queue manager api
+        addToQueue(socketWrapper);
+        queueManager.add(socketWrapper);
+//        System.out.println("new Connection from " + socketWrapper.getClientAddress() + socketWrapper.getClientPort());
+        socketWrapper.sendMessage(new InQueueMessage(System.currentTimeMillis(), "You have been added to queue"));
+    }
+
+    public synchronized void promoteToGame(SocketWrapper socketWrapper) { // same level as queue manager api
+        removeFromQueue(socketWrapper);
+        addToGame(socketWrapper);
+        queueManager.promote(socketWrapper);
+        socketWrapper.sendMessage(new InGameMessage(System.currentTimeMillis(), "You have been added to game"));
+    }
+
+    public synchronized void remove(SocketWrapper socketWrapper) throws IOException { //  same level as queue manager api
+        if(queueManager.isInGame(socketWrapper)) {
+            removeFromGame(socketWrapper);
+        }
+        else {
+            removeFromQueue(socketWrapper);
+        }
+
+        socketWrapper.sendMessage(new DisconnectedMessage(System.currentTimeMillis(), "You have been disconnected"));
+//        System.out.println("Messaged sent back: " + new DisconnectedMessage(System.currentTimeMillis(), "You have been disconnected"));
+
+        try {
+            queueManager.remove(socketWrapper); // queue manager is the owner of the socket wrapper. only queue manager can call close on it.
+//            System.out.println("removed from queue manager");
+        } catch (Exception e) {
+            System.out.println("removing from queue manager met with exception " + e);
+        }
+    }
+
+    private void addToQueue(SocketWrapper socketWrapper) throws KeyAlreadyExistsException {
+        queueSocketWrapperListenerHashMap.put(socketWrapper, new QueueClientListener(socketWrapper));
+        queueGameListenerHashMap.put(socketWrapper, new QueueGameListener(socketWrapper));
+    }
+
+    private void addToGame(SocketWrapper socketWrapper) throws KeyAlreadyExistsException {
+        gameSocketWrapperListenerHashMap.put(socketWrapper, new GameClientListener(socketWrapper));
+        gameGameListenerHashMap.put(socketWrapper, new GameGameListener(socketWrapper));
+    }
+
+    private void removeFromGame(SocketWrapper socketWrapper) throws NoSuchElementException {
+        try {
+            GameClientListener gameClientListener = (GameClientListener) gameSocketWrapperListenerHashMap.remove(socketWrapper);
+            gameClientListener.remove();
+            GameGameListener gameGameListener = (GameGameListener) gameGameListenerHashMap.remove(socketWrapper);
+            gameGameListener.remove();
+        } catch (Exception e) {
+            System.out.println("Met when removing from hashmap: e");
+        }
+    }
+
+    private void removeFromQueue(SocketWrapper socketWrapper) throws NoSuchElementException {
+        System.out.println("this still works");
+        QueueClientListener queueClientListener = (QueueClientListener) queueSocketWrapperListenerHashMap.remove(socketWrapper);
+        queueClientListener.remove();
+        QueueGameListener queueGameListener = (QueueGameListener) queueGameListenerHashMap.remove(socketWrapper);
+        queueGameListener.remove();
     }
 }
